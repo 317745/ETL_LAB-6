@@ -13,15 +13,14 @@ def exploratory_quality_check_output():
     ge_df = gx.from_pandas(df_clean)
     
     
-    # Completeness / Nulls
+    # Completeness
     for col in ge_df.columns:
         ge_df.expect_column_values_to_not_be_null(col)
     
-    # Uniqueness para IDs
+    # Uniqueness para ids
     if 'transaction_id' in ge_df.columns:
         ge_df.expect_column_values_to_be_unique('transaction_id')
-    if 'customer_id' in ge_df.columns:
-        ge_df.expect_column_values_to_be_unique('customer_id')
+    
     
     # Validity para amount
     if 'amount' in ge_df.columns:

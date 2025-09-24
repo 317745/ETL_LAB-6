@@ -1,6 +1,6 @@
-import great_expectations as gx
 from Extraction.dfExtraction import readCsvDf
 import pandas as pd
+import numpy as np
 
 def cleaning_data():
     
@@ -13,10 +13,8 @@ def cleaning_data():
     
     df = df_original.copy()
     
-    df = df.rename(columns={
-        "id": "customer_id",
-        "customer_id": "transaction_id"
-    })
+    df = df.drop_duplicates()
+    df.columns = ['transaction_id', 'purchase_date', 'product_category', 'amount', 'customer_id']
 
     columns = df.columns
 
@@ -29,33 +27,55 @@ def cleaning_data():
     df['purchase_date'] = pd.to_datetime(df['purchase_date'], infer_datetime_format=True)
     print(f"purchase_date tipo luego de limpieza: {df['purchase_date'].dtype}")
     
-    # eliminar filas con purchase_date nulo
+    # asignar grupo a duplicados por cliente + fecha
+    df['group_id'] = (
+    df.groupby(['customer_id', 'purchase_date']).ngroup())
+
+    mask = df.duplicated(subset=['purchase_date', 'customer_id'], keep=False)
+
+    df['group_id'] = np.where(
+        mask, 
+        df.groupby(['customer_id', 'purchase_date']).ngroup(), 
+        np.nan
+    )
+
+    # reasignar transaction_id con base en group_id
+    df.loc[df['group_id'].notna(), 'transaction_id'] = df.loc[df['group_id'].notna(), 'group_id']
+
+    # eliminar columna auxiliar
+    df = df.drop('group_id', axis=1)
+    print(len(df))
+    
+    #-----------------------------------------
+    
+    # eliminar filas con purchase_date nulo_----------- arreglar 
     before = len(df)
     df = df.dropna(subset=['purchase_date'])
     after = len(df)
-    print(f"Se eliminaron {before - after} filas con valores nulos en 'purchase_date'")
     
-    #amount
     
+   
+    #imputaciones especificas-------------------------
     #strings
     
     df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
     
-    #eliminar NaNs generados
-    before = len(df)
-    df = df.dropna(subset=['amount'])
-    after = len(df)
-    print(f"Se eliminaron {before - after} filas con valores no numéricos en 'amount'")
-        
-    #numericos positivos
-    df = df[df['amount'] > 0]
-    after = len(df)
-    print(f"Se eliminaron {before - after} filas con valores no positivos en 'amount'")
-        
-    print(f"amount tipo luego de limpieza: {df['amount'].dtype}")
+    # product_category -> moda
+    product_mode = df['product_category'].mode()[0]
+    df['product_category'].fillna(product_mode, inplace=True)
+    #print(f"Se ha imputado en las filas con faltantes de la columna 'product_category' con la moda: {product_mode}")
+
+    
+    # imputar Nan en amount con la media por categoria
+    media_categoria = df.groupby('product_category')['amount'].transform('mean')
+    missing_before = df['amount'].isna().sum()
+    df['amount'] = df['amount'].fillna(media_categoria)
+    missing_after = df['amount'].isna().sum()
+    #print(f"Se imputaron {missing_before - missing_after} valores en 'amount' con la media por categoria.")
+
     
     
-    # Completeness
+    # Completeness-----------------------------
     calculo_faltantes = df[columns].isnull().sum()
     porcentaje_faltantes = (calculo_faltantes / len(df)) * 100
     porcentaje_faltantes_df = (df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
@@ -77,15 +97,7 @@ def cleaning_data():
             print("No es posible imputar la columna 'transaction_id' debido a su naturaleza de id. "
                   "Se recomienda tener esto en cuenta al realizar analisis posteriores.")
             
-        elif col == 'product_category':
-            product_mode = df['product_category'].mode()[0]
-            df['product_category'].fillna(product_mode, inplace=True)
-            print(f"Se ha imputado en las filas con faltantes de la columna 'product_category' con la moda: {product_mode}")
-            
-        elif col == 'amount':
-            amount_mean = df['amount'].mean()
-            df['amount'].fillna(amount_mean, inplace=True)
-            print(f"Se ha imputado en las filas con faltantes de la columna 'amount' con la media: {amount_mean}")
+      
             
         elif porcentaje_faltantes[col] <= 5 and porcentaje_faltantes_df < 10:
             print("Las filas con valores faltantes no representan más del 5% en la columna y menos del 10% en todo el dataset. "
@@ -93,26 +105,34 @@ def cleaning_data():
             before = len(df)
             df = df.dropna(subset=[col])
             after = len(df)
-            print(f"Se eliminaron {before - after} filas con valores faltantes en '{col}'")
-
+            #print(f"Se eliminaron {before - after} filas con valores faltantes en '{col}'")
+    
+    
+    
+   #filtrar amount
+   
+   #numericos positivos
+    df = df[df['amount'] > 0]
+    after = len(df)
+    #print(f"Se eliminaron {before - after} filas con valores no positivos en 'amount'")
+        
+    #print(f"amount tipo luego de limpieza: {df['amount'].dtype}")
+  
     #--- Uniqueness ---
     
-    # Eliminar duplicados exactos por fecha, product_category y amount
-    df_clean = df.drop_duplicates(subset=['purchase_date', 'product_category', 'amount'], keep='first')
+    df['transaction_id'] = pd.to_numeric(df['transaction_id'], errors='coerce')
+    
+    duplicados_id = df.duplicated(subset=['transaction_id'], keep=False)
+    
+    if duplicados_id.any():
+        max_transaction_id = df['transaction_id'].max() + 1
+        
+        duplicados = df[df.duplicated(subset=['transaction_id'], keep='first')].index
+        df.loc[duplicados, 'transaction_id'] = range(max_transaction_id, max_transaction_id + len(duplicados))
+
 
     
-    #ordenar transaction_id segun fecha 
-    df_clean = df_clean.sort_values(by='purchase_date').reset_index(drop=True)
-
-    # Generar transaction_id secuencial
-    df_clean['transaction_id'] = df_clean.index + 1
-
-    print(f"Transaction_id únicos DESPUÉS: {df_clean['transaction_id'].nunique()}")
-    print(f"Duplicados DESPUÉS: {df_clean.duplicated(subset=['transaction_id']).sum()}")
-    print("Se ha regenerado 'transaction_id' ")
-    
-    
-    return df_clean
+    return df
 
         
 if __name__ == "__main__":

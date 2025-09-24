@@ -16,8 +16,7 @@ def exploratory_quality_check():
     
     
     df = df.rename(columns={
-        "id": "customer_id",
-        "customer_id": "transaction_id"
+        "id": "transaction_id"
     })
 
     
