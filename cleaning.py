@@ -48,7 +48,7 @@ def cleaning_data():
     
     #-----------------------------------------
     
-    # eliminar filas con purchase_date nulo_----------- arreglar 
+    # eliminar filas con purchase_date nulo_ 
     before = len(df)
     df = df.dropna(subset=['purchase_date'])
     after = len(df)
